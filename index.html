@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>苏砚和小猫的时光信笺</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#f4efe6" />
+  <style>
+    body{background:#f4efe6;font-family:Georgia,serif;margin:0;padding:18px;color:#4b3f35}
+    h2{font-weight:normal;font-size:18px;margin:0 0 10px 0}
+    .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    select{padding:8px 10px;background:#fffaf2;border:1px solid #cbbca3;border-radius:8px}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:14px}
+    .day{background:#fffdf8;padding:10px 6px;text-align:center;border:1px solid #d6c7b0;border-radius:10px;user-select:none;-webkit-user-select:none}
+    .day:active{transform:scale(0.98)}
+    .hint{opacity:.75;font-size:12px;margin-top:10px}
+    .envelope{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.18);padding:16px}
+    .card{width:min(520px,92vw);background:#fffdf8;border:2px solid #c8b79c;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.25);padding:18px 18px 14px 18px}
+    .text{white-space:pre-wrap;line-height:1.55;font-size:15px}
+    .close{margin-top:14px;text-align:center;color:#8b6f47;padding:10px;border-radius:10px;border:1px dashed #c8b79c}
+  </style>
+</head>
+<body>
+  <h2>苏砚和小猫的时光信笺</h2>
+  <div class="bar">
+    <select id="yearSelect"></select>
+    <select id="monthSelect"></select>
+  </div>
+  <div class="calendar" id="calendar"></div>
+  <div class="hint">提示：未来日期会“锁住”。连点同一天 3 次可提前解锁。</div>
+
+  <div class="envelope" id="envelope" role="dialog" aria-modal="true">
+    <div class="card">
+      <div class="text" id="letterText"></div>
+      <div class="close" id="closeBtn">合上信封</div>
+    </div>
+  </div>
+
+<script>
+/**
+ * iPhone/Safari 关键点：
+ * 1) 不用 file:// 读取 JSON（GitHub Pages 是 https://，OK）
+ * 2) Date 解析用 new Date(y, m-1, d)（不要 new Date("YYYY-MM-DD")）
+ * 3) 初始化放在 DOMContentLoaded 之后
+ */
+
+const teasingMessages = [
+  "你是不是皮痒了？谁准你偷看的？",
+  "还敢偷看未来的惊喜？要不要让我也偷看一下你裙子底下的秘密？",
+  "一页一天，一天一个吻，你提前翻了一页，是不是该补我一个吻？",
+  "那天的我还没来得及想你，你就自己先去看了吗？",
+  "我才写到一半啊小猫，你这不是逼我加班？"
+];
+
+const futureClicks = {}; // 只在本次打开期间有效：刷新后会重置
+let DATA = null;
+
+document.addEventListener("DOMContentLoaded", () => {
+  // 注册 service worker（可选：让“添加到主屏幕”后离线可用）
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  }
+
+  fetch("./calendar.json", {cache:"no-store"})
+    .then(r => r.json())
+    .then(json => { DATA = json; init(); })
+    .catch(err => {
+      alert("calendar.json 读取失败。请确认你是通过 GitHub Pages 的网址打开，而不是 file:// 本地打开。");
+      console.error(err);
+    });
+});
+
+function init(){
+  const yearSel = document.getElementById("yearSelect");
+  const monthSel = document.getElementById("monthSelect");
+
+  yearSel.innerHTML = "";
+  monthSel.innerHTML = "";
+
+  // 填年份
+  for (const y in DATA.years){
+    const opt = document.createElement("option");
+    opt.value = y;
+    opt.textContent = y;
+    yearSel.appendChild(opt);
+  }
+
+  // 填月份
+  for (let i=1;i<=12;i++){
+    const opt = document.createElement("option");
+    const v = String(i).padStart(2,"0");
+    opt.value = v;
+    opt.textContent = i + "月";
+    monthSel.appendChild(opt);
+  }
+
+  // 默认选当前年月（更贴心）
+  const now = new Date();
+  const nowY = String(now.getFullYear());
+  const nowM = String(now.getMonth()+1).padStart(2,"0");
+  if (DATA.years[nowY]) yearSel.value = nowY;
+  monthSel.value = nowM;
+
+  yearSel.addEventListener("change", render);
+  monthSel.addEventListener("change", render);
+
+  // 信封关闭
+  document.getElementById("closeBtn").addEventListener("click", closeEnvelope);
+  document.getElementById("envelope").addEventListener("click", (e)=>{
+    if(e.target.id === "envelope") closeEnvelope();
+  });
+
+  render();
+}
+
+function render(){
+  const y = document.getElementById("yearSelect").value;
+  const m = document.getElementById("monthSelect").value;
+  const calDiv = document.getElementById("calendar");
+  calDiv.innerHTML = "";
+
+  const entries = DATA.years[y].entries;
+
+  // 收集当月日期并排序（避免对象遍历顺序差异）
+  const keys = [];
+  for (const k in entries){
+    if (k.substring(0,2) === m) keys.push(k);
+  }
+  keys.sort();
+
+  keys.forEach(mmdd => {
+    const day = parseInt(mmdd.substring(3), 10);
+    const div = document.createElement("div");
+    div.className = "day";
+    div.textContent = day;
+    div.addEventListener("click", () => handleClick(y, m, day, entries[mmdd].text));
+    calDiv.appendChild(div);
+  });
+}
+
+function handleClick(year, month, day, text){
+  const today = new Date();
+  // 只比较日期（忽略时间）
+  const t0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const sel = new Date(parseInt(year,10), parseInt(month,10)-1, parseInt(day,10));
+
+  if (sel > t0){
+    const key = year + "-" + month + "-" + String(day).padStart(2,"0");
+    futureClicks[key] = (futureClicks[key] || 0) + 1;
+
+    if (futureClicks[key] >= 3){
+      alert("要不……我们就把那一天提前一起过了吧。");
+      openEnvelope(text);
+    } else {
+      const msg = teasingMessages[Math.floor(Math.random()*teasingMessages.length)];
+      alert(msg);
+    }
+  } else {
+    openEnvelope(text);
+  }
+}
+
+function openEnvelope(text){
+  document.getElementById("letterText").textContent = text || "";
+  document.getElementById("envelope").style.display = "flex";
+}
+
+function closeEnvelope(){
+  document.getElementById("envelope").style.display = "none";
+}
+</script>
+</body>
+</html>

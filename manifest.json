@@ -1,0 +1,10 @@
+{
+  "name": "苏砚和小猫的时光信笺",
+  "short_name": "时光信笺",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4efe6",
+  "theme_color": "#f4efe6",
+  "icons": []
+}
